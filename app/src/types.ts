@@ -14,10 +14,17 @@ export interface TelegramFolder {
     parent_id?: number;
 }
 
+export interface TelegramSubfolder {
+    id: number;
+    folder_id: number;
+    name: string;
+}
+
 export interface QueueItem {
     id: string;
     path: string;
     folderId: number | null;
+    subfolderId?: number | null;
     status: 'pending' | 'uploading' | 'success' | 'error' | 'cancelled';
     error?: string;
     progress?: number; // 0-100
@@ -43,4 +50,3 @@ export interface DownloadItem {
     totalBytes?: number;
     speedBytesPerSec?: number;
 }
-
