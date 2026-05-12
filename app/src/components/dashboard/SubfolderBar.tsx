@@ -64,10 +64,8 @@ export function SubfolderBar({ subfolders, activeSubfolderId, onSelect, onCreate
                         onChange={(e) => setNewName(e.target.value)}
                         onKeyDown={(e) => e.key === 'Enter' && submitCreate()}
                         onBlur={() => {
-                            if (!newName.trim()) {
-                                setShowInput(false);
-                                setNewName('');
-                            }
+                            setShowInput(false);
+                            setNewName('');
                         }}
                     />
                 ) : (
