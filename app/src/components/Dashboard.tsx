@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { invoke } from '@tauri-apps/api/core';
 import { toast } from 'sonner';
 
-import { TelegramFile, BandwidthStats } from '../types';
+import { TelegramFile, BandwidthStats, TelegramSubfolder } from '../types';
 import { formatBytes, isMediaFile, isPdfFile } from '../utils';
 
 // Components
@@ -19,6 +19,7 @@ import { MediaPlayer } from './dashboard/MediaPlayer';
 import { DragDropOverlay } from './dashboard/DragDropOverlay';
 import { ExternalDropBlocker } from './dashboard/ExternalDropBlocker';
 import { PdfViewer } from './dashboard/PdfViewer';
+import { SubfolderBar } from './dashboard/SubfolderBar';
 
 // Hooks
 import { useTelegramConnection } from '../hooks/useTelegramConnection';
@@ -44,6 +45,7 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
     const [searchTerm, setSearchTerm] = useState("");
     const [searchResults, setSearchResults] = useState<TelegramFile[]>([]);
     const [isSearching, setIsSearching] = useState(false);
+    const [activeSubfolderId, setActiveSubfolderId] = useState<number | null>(null);
     const [internalDragFileId, _setInternalDragFileId] = useState<number | null>(null);
     const internalDragRef = useRef<number | null>(null);
 
@@ -72,8 +74,8 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
 
 
     const { data: allFiles = [], isLoading, error } = useQuery({
-        queryKey: ['files', activeFolderId],
-        queryFn: () => invoke<any[]>('cmd_get_files', { folderId: activeFolderId }).then(res => res.map(f => ({
+        queryKey: ['files', activeFolderId, activeSubfolderId],
+        queryFn: () => invoke<any[]>('cmd_get_files', { folderId: activeFolderId, subfolderId: activeSubfolderId }).then(res => res.map(f => ({
             ...f,
             sizeStr: formatBytes(f.size),
             type: f.icon_type || (f.name.endsWith('/') ? 'folder' : 'file')
@@ -92,6 +94,14 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
         enabled: !!store
     });
 
+    const { data: subfolders = [] } = useQuery({
+        queryKey: ['subfolders', activeFolderId],
+        queryFn: () => activeFolderId
+            ? invoke<TelegramSubfolder[]>('cmd_list_subfolders', { folderId: activeFolderId })
+            : Promise.resolve([]),
+        enabled: !!store && activeFolderId !== null,
+    });
+
 
     const {
         handleDelete, handleBulkDelete, handleBulkDownload,
@@ -99,8 +109,22 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
 
     } = useFileOperations(activeFolderId, selectedIds, setSelectedIds, displayedFiles);
 
-    const { uploadQueue, setUploadQueue, handleManualUpload, cancelAll: cancelUploads, cancelItem: cancelUploadItem, retryItem: retryUploadItem, isDragging } = useFileUpload(activeFolderId, store);
+    const { uploadQueue, setUploadQueue, handleManualUpload, cancelAll: cancelUploads, cancelItem: cancelUploadItem, retryItem: retryUploadItem, isDragging } = useFileUpload(activeFolderId, activeSubfolderId, store);
     const { downloadQueue, queueDownload, clearFinished: clearDownloads, cancelAll: cancelDownloads, cancelItem: cancelDownloadItem, retryItem: retryDownloadItem } = useFileDownload(store);
+
+    const handleCreateSubfolder = async (name: string) => {
+        if (!activeFolderId) return;
+        try {
+            const trimmedName = name.trim();
+            if (!trimmedName) return;
+            const created = await invoke<TelegramSubfolder>('cmd_create_subfolder', { folderId: activeFolderId, name: trimmedName });
+            queryClient.invalidateQueries({ queryKey: ['subfolders', activeFolderId] });
+            setActiveSubfolderId(created.id);
+            toast.success(`Subfolder "${created.name}" created.`);
+        } catch (e) {
+            toast.error(`Failed to create subfolder: ${e}`);
+        }
+    };
 
 
     const handleSelectAll = useCallback(() => {
@@ -153,6 +177,16 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
 
 
     useEffect(() => {
+        setActiveSubfolderId(null);
+    }, [activeFolderId]);
+
+    useEffect(() => {
+        if (activeSubfolderId && !subfolders.find(s => s.id === activeSubfolderId)) {
+            setActiveSubfolderId(null);
+        }
+    }, [activeSubfolderId, subfolders]);
+
+    useEffect(() => {
         setSelectedIds([]);
         setShowMoveModal(false);
         setSearchTerm("");
@@ -162,7 +196,7 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
         setPdfFile(null);
         setPreviewContextFiles([]);
         setPreviewContextIndex(-1);
-    }, [activeFolderId]);
+    }, [activeFolderId, activeSubfolderId]);
 
 
     useEffect(() => {
@@ -323,6 +357,12 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
     const currentFolderName = activeFolderId === null
         ? "Saved Messages"
         : folders.find(f => f.id === activeFolderId)?.name || "Folder";
+    const currentSubfolderName = activeSubfolderId
+        ? subfolders.find(s => s.id === activeSubfolderId)?.name || "Subfolder"
+        : null;
+    const breadcrumbName = currentSubfolderName
+        ? `${currentFolderName} / ${currentSubfolderName}`
+        : currentFolderName;
 
 
     const handleRootDragOver = (e: React.DragEvent) => {
@@ -406,7 +446,7 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
 
             <main className="flex-1 flex flex-col" onClick={(e) => { if (e.target === e.currentTarget) setSelectedIds([]); }}>
                 <TopBar
-                    currentFolderName={currentFolderName}
+                    currentFolderName={breadcrumbName}
                     selectedIds={selectedIds}
                     onShowMoveModal={() => setShowMoveModal(true)}
                     onBulkDownload={handleBulkDownload}
@@ -417,6 +457,14 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
                     searchTerm={searchTerm}
                     onSearchChange={setSearchTerm}
                 />
+                {activeFolderId !== null && (
+                    <SubfolderBar
+                        subfolders={subfolders}
+                        activeSubfolderId={activeSubfolderId}
+                        onSelect={setActiveSubfolderId}
+                        onCreate={handleCreateSubfolder}
+                    />
+                )}
                 {searchTerm.length > 2 && (
                     <div className="px-6 pt-4 pb-0">
                         <h2 className="text-sm font-medium text-telegram-subtext">

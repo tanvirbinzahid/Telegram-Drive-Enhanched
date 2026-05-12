@@ -36,6 +36,13 @@ pub struct FolderMetadata {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct SubfolderMetadata {
+    pub id: i64,
+    pub folder_id: i64,
+    pub name: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Drive {
     pub chat_id: i64,
     pub name: String,

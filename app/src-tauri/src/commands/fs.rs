@@ -1,11 +1,27 @@
 use tauri::{State, Emitter};
+use std::collections::HashSet;
 use grammers_client::types::{Media, Peer};
 use grammers_client::InputMessage;
 use grammers_tl_types as tl;
 use crate::TelegramState;
-use crate::models::{FolderMetadata, FileMetadata};
+use crate::models::{FolderMetadata, FileMetadata, SubfolderMetadata};
 use crate::bandwidth::BandwidthManager;
 use crate::commands::utils::{resolve_peer, map_error};
+
+const SUBFOLDER_MARKER_PREFIX: &str = "[telegram-drive-subfolder]";
+
+fn parse_subfolder_marker(text: &str) -> Option<String> {
+    let trimmed = text.trim();
+    if !trimmed.starts_with(SUBFOLDER_MARKER_PREFIX) {
+        return None;
+    }
+    let name = trimmed[SUBFOLDER_MARKER_PREFIX.len()..].trim();
+    if name.is_empty() {
+        None
+    } else {
+        Some(name.to_string())
+    }
+}
 
 #[tauri::command]
 pub async fn cmd_create_folder(
@@ -107,6 +123,76 @@ pub async fn cmd_delete_folder(
     Ok(true)
 }
 
+#[tauri::command]
+pub async fn cmd_create_subfolder(
+    folder_id: i64,
+    name: String,
+    state: State<'_, TelegramState>,
+) -> Result<SubfolderMetadata, String> {
+    let trimmed_name = name.trim();
+    if trimmed_name.is_empty() {
+        return Err("Subfolder name cannot be empty".to_string());
+    }
+
+    let client_opt = { state.client.lock().await.clone() };
+    if client_opt.is_none() {
+        let mock_id = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+        log::info!("[MOCK] Created subfolder '{}' with ID {}", trimmed_name, mock_id);
+        return Ok(SubfolderMetadata {
+            id: mock_id,
+            folder_id,
+            name: trimmed_name.to_string(),
+        });
+    }
+
+    let client = client_opt.unwrap();
+    let peer = resolve_peer(&client, Some(folder_id), &state.peer_cache).await?;
+    let marker_text = format!("{} {}", SUBFOLDER_MARKER_PREFIX, trimmed_name);
+    let sent = client.send_message(&peer, InputMessage::new().text(marker_text))
+        .await
+        .map_err(map_error)?;
+
+    Ok(SubfolderMetadata {
+        id: sent.id() as i64,
+        folder_id,
+        name: trimmed_name.to_string(),
+    })
+}
+
+#[tauri::command]
+pub async fn cmd_list_subfolders(
+    folder_id: i64,
+    state: State<'_, TelegramState>,
+) -> Result<Vec<SubfolderMetadata>, String> {
+    let client_opt = { state.client.lock().await.clone() };
+    if client_opt.is_none() {
+        return Ok(Vec::new());
+    }
+
+    let client = client_opt.unwrap();
+    let peer = resolve_peer(&client, Some(folder_id), &state.peer_cache).await?;
+    let mut subfolders = Vec::new();
+    let mut seen_ids = HashSet::new();
+    let mut msgs = client.iter_messages(&peer);
+
+    while let Some(msg) = msgs.next().await.map_err(|e| e.to_string())? {
+        if msg.media().is_some() {
+            continue;
+        }
+        if let Some(name) = parse_subfolder_marker(msg.text()) {
+            let id = msg.id() as i64;
+            if seen_ids.insert(id) {
+                subfolders.push(SubfolderMetadata { id, folder_id, name });
+            }
+        }
+    }
+
+    Ok(subfolders)
+}
+
 
 #[derive(Clone, serde::Serialize)]
 struct ProgressPayload {
@@ -189,6 +275,7 @@ pub async fn cmd_cancel_transfer(
 pub async fn cmd_upload_file(
     path: String,
     folder_id: Option<i64>,
+    subfolder_id: Option<i64>,
     transfer_id: Option<String>,
     app_handle: tauri::AppHandle,
     state: State<'_, TelegramState>,
@@ -201,7 +288,7 @@ pub async fn cmd_upload_file(
 
     let client_opt = { state.client.lock().await.clone() };
     if client_opt.is_none() {
-        log::info!("[MOCK] Uploaded file {} to {:?}", path, folder_id);
+        log::info!("[MOCK] Uploaded file {} to {:?} (subfolder {:?})", path, folder_id, subfolder_id);
         bw_state.add_up(size);
         return Ok("Mock upload successful".to_string());
     }
@@ -276,7 +363,11 @@ pub async fn cmd_upload_file(
     }
 
     let uploaded_file = upload_result.map_err(map_error)?;
-    let message = InputMessage::new().text("").file(uploaded_file);
+    let reply_to = match subfolder_id {
+        Some(id) => Some(i32::try_from(id).map_err(|_| "Invalid subfolder ID".to_string())?),
+        None => None,
+    };
+    let message = InputMessage::new().text("").file(uploaded_file).reply_to(reply_to);
 
     let peer = resolve_peer(&client, folder_id, &state.peer_cache).await?;
 
@@ -442,6 +533,7 @@ pub async fn cmd_move_files(
 #[tauri::command]
 pub async fn cmd_get_files(
     folder_id: Option<i64>,
+    subfolder_id: Option<i64>,
     state: State<'_, TelegramState>,
 ) -> Result<Vec<FileMetadata>, String> {
     let client_opt = { state.client.lock().await.clone() };
@@ -451,11 +543,19 @@ pub async fn cmd_get_files(
     }
     let client = client_opt.unwrap();
     let mut files = Vec::new();
+    let mut files_with_reply: Vec<(FileMetadata, Option<i32>)> = Vec::new();
+    let mut subfolder_marker_ids: HashSet<i64> = HashSet::new();
     
     let peer = resolve_peer(&client, folder_id, &state.peer_cache).await?;
 
     let mut msgs = client.iter_messages(&peer);
     while let Some(msg) = msgs.next().await.map_err(|e| e.to_string())? {
+        if msg.media().is_none() {
+            if parse_subfolder_marker(msg.text()).is_some() {
+                subfolder_marker_ids.insert(msg.id() as i64);
+            }
+            continue;
+        }
         if let Some(doc) = msg.media() {
             let (name, size, mime, ext) = match doc {
                 Media::Document(d) => {
@@ -468,9 +568,28 @@ pub async fn cmd_get_files(
                 Media::Photo(_) => ("Photo.jpg".to_string(), 0, Some("image/jpeg".into()), Some("jpg".into())),
                 _ => ("Unknown".to_string(), 0, None, None),
             };
-            files.push(FileMetadata {
+            let file = FileMetadata {
                 id: msg.id() as i64, folder_id, name, size: size as u64, mime_type: mime, file_ext: ext, created_at: msg.date().to_string(), icon_type: "file".into()
-            });
+            };
+            files_with_reply.push((file, msg.reply_to_message_id()));
+        }
+    }
+
+    if let Some(subfolder_id) = subfolder_id {
+        let reply_target = i32::try_from(subfolder_id).map_err(|_| "Invalid subfolder ID".to_string())?;
+        for (file, reply_to) in files_with_reply {
+            if reply_to == Some(reply_target) {
+                files.push(file);
+            }
+        }
+    } else {
+        for (file, reply_to) in files_with_reply {
+            if let Some(reply_id) = reply_to {
+                if subfolder_marker_ids.contains(&(reply_id as i64)) {
+                    continue;
+                }
+            }
+            files.push(file);
         }
     }
 
