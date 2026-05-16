@@ -17,6 +17,21 @@ pub struct AuthResult {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct AccountInfo {
+    pub id: String,
+    pub name: String,
+    pub api_id: i32,
+    pub api_hash: String,
+    pub phone: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct AccountsConfigResponse {
+    pub accounts: Vec<AccountInfo>,
+    pub active_account_id: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct FileMetadata {
     pub id: i64,
     pub folder_id: Option<i64>,

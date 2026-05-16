@@ -57,6 +57,17 @@ Telegram Drive leverages the Telegram API to allow you to upload, organize, and 
 *   **Backend**: Rust (Tauri), Grammers (Telegram Client)
 *   **Build Tool**: Vite
 
+##  📦 What's New - Build Automation (v1.3.2+)
+
+We've added **automated build scripts** to make creating executables easy and hassle-free:
+
+*   **`build.sh`** - Automated build for Linux and macOS with prerequisite checking
+*   **`build.bat`** - Automated build for Windows with prerequisite checking
+*   **[BUILD_GUIDE.md](BUILD_GUIDE.md)** - Complete step-by-step build guide with troubleshooting
+*   **[BUILD_INSTRUCTIONS.md](BUILD_INSTRUCTIONS.md)** - Quick reference for all platforms
+*   **[EXECUTABLE_BUILD_SETUP.md](EXECUTABLE_BUILD_SETUP.md)** - Summary and quick start
+
+**No manual configuration needed!** Just run the script for your platform and we handle the rest.
 
 ##  Getting Started
 
@@ -106,6 +117,66 @@ Telegram Drive leverages the Telegram API to allow you to upload, organize, and 
     ```bash
     npm run tauri build
     ```
+
+### 🚀 Quick Build with Automated Scripts
+
+We've provided automated build scripts that handle prerequisites, dependencies, and compilation automatically:
+
+#### Windows Users
+```bash
+# Simply double-click in the repository root:
+build.bat
+
+# Or run from command prompt:
+cmd /c build.bat
+```
+
+#### Linux/macOS Users
+```bash
+# From repository root:
+./build.sh
+
+# Or make it executable first:
+chmod +x build.sh
+./build.sh
+```
+
+**What the scripts do:**
+- ✅ Check all prerequisites
+- ✅ Install npm dependencies if needed
+- ✅ Run the Tauri build
+- ✅ Show output locations when complete
+- ✅ Provide helpful error messages if something is missing
+
+### Build Outputs
+
+After building, your executables will be located at:
+
+| Platform | Location | File |
+|----------|----------|------|
+| **Windows** | `app/src-tauri/target/release/` | `Telegram Drive.exe` |
+| **Windows** | `app/src-tauri/target/release/bundle/msi/` | `Telegram Drive_*.msi` |
+| **Linux** | `app/src-tauri/target/release/` | `telegram_drive` |
+| **Linux** | `app/src-tauri/target/release/bundle/appimage/` | `*.AppImage` |
+| **macOS** | `app/src-tauri/target/release/bundle/macos/` | `Telegram Drive.app` |
+| **macOS** | `app/src-tauri/target/release/bundle/dmg/` | `*.dmg` |
+
+### Build Documentation
+
+For detailed build instructions, troubleshooting, and platform-specific guidance, refer to:
+
+- **[BUILD_GUIDE.md](BUILD_GUIDE.md)** - Comprehensive step-by-step guide with troubleshooting (recommended for detailed instructions)
+- **[BUILD_INSTRUCTIONS.md](BUILD_INSTRUCTIONS.md)** - Quick reference for all platforms
+- **[EXECUTABLE_BUILD_SETUP.md](EXECUTABLE_BUILD_SETUP.md)** - Summary and quick start overview
+
+### Build Time & Resources
+
+- **First build:** ⏳ 5-15 minutes (compiles 300+ Rust crates)
+- **Subsequent builds:** ⚡ 1-3 minutes
+- **Disk space required:** 💾 2-3 GB
+- **RAM recommended:** 4 GB minimum
+
+This is normal! The first build takes longer because it compiles many Rust dependencies. Subsequent builds are much faster.
 
 ##  Open Source & License
 

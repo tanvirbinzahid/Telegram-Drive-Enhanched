@@ -19,10 +19,14 @@ use grammers_client::SignInError;
 /// 
 /// IMPORTANT: This function properly manages runner lifecycle to prevent stack overflow.
 /// Before spawning a new runner, it signals the old runner to shutdown.
+/// 
+/// If account_id is provided, uses a per-account session file.
+/// Otherwise, uses a default shared session for backward compatibility.
 pub async fn ensure_client_initialized(
     app_handle: &tauri::AppHandle,
     state: &State<'_, TelegramState>,
     api_id: i32,
+    account_id: Option<&str>,
 ) -> Result<Client, String> {
     let mut client_guard = state.client.lock().await;
 
@@ -58,7 +62,13 @@ pub async fn ensure_client_initialized(
             .map_err(|e| format!("Failed to create app data dir: {}", e))?;
     }
     
-    let session_path = app_data_dir.join("telegram.session");
+    // Use per-account session path if account_id is provided, otherwise use default
+    let session_path = if let Some(acc_id) = account_id {
+        app_data_dir.join(format!("telegram_session_{}.db", acc_id))
+    } else {
+        app_data_dir.join("telegram.session")
+    };
+    
     let session_path_str = session_path.to_string_lossy().to_string();
     log::info!("Opening session at: {}", session_path_str);
     
@@ -103,6 +113,51 @@ pub async fn ensure_client_initialized(
     Ok(client)
 }
 
+/// Load and migrate accounts configuration from persistent storage
+pub async fn load_or_migrate_accounts_config(
+    app_handle: &tauri::AppHandle,
+) -> Result<crate::accounts::AccountsConfig, String> {
+    // Try to load the new accounts config
+    match crate::commands::accounts::load_accounts_config(app_handle).await {
+        Ok(config) if !config.accounts.is_empty() => {
+            return Ok(config);
+        }
+        Ok(_) => {
+            // New config exists but is empty, check for legacy config
+        }
+        Err(_) => {
+            // New config doesn't exist, check for legacy config
+        }
+    }
+    
+    // Check for legacy single-account config
+    let app_data_dir = app_handle.path().app_data_dir()
+        .map_err(|e| format!("Failed to get app data dir: {}", e))?;
+    
+    let legacy_config_path = app_data_dir.join("config.json");
+    if legacy_config_path.exists() {
+        let config_str = std::fs::read_to_string(&legacy_config_path)
+            .map_err(|e| format!("Failed to read legacy config: {}", e))?;
+        
+        // Try to parse as JSON and extract api_id/api_hash
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&config_str) {
+            if let (Some(api_id), Some(api_hash)) = (
+                json.get("api_id").and_then(|v| v.as_i64()).map(|v| v as i32),
+                json.get("api_hash").and_then(|v| v.as_str()).map(String::from),
+            ) {
+                log::info!("Found legacy config, migrating to multi-account format...");
+                let migrated = crate::accounts::AccountsConfig::migrate_from_legacy(api_id, api_hash);
+                // Save the migrated config
+                let _ = crate::commands::accounts::save_accounts_config(app_handle, &migrated).await;
+                return Ok(migrated);
+            }
+        }
+    }
+    
+    // No config found, return empty
+    Ok(crate::accounts::AccountsConfig::new())
+}
+
 #[tauri::command]
 pub async fn cmd_connect(
     app_handle: tauri::AppHandle,
@@ -111,7 +166,25 @@ pub async fn cmd_connect(
 ) -> Result<bool, String> {
     // Store API ID for auto-reconnect
     *state.api_id.lock().await = Some(api_id);
-    ensure_client_initialized(&app_handle, &state, api_id).await?;
+    ensure_client_initialized(&app_handle, &state, api_id, None).await?;
+    Ok(true)
+}
+
+#[tauri::command]
+pub async fn cmd_connect_account(
+    app_handle: tauri::AppHandle,
+    state: State<'_, TelegramState>,
+    account_id: String,
+) -> Result<bool, String> {
+    let config = crate::commands::accounts::load_accounts_config(&app_handle).await?;
+    let account = config.get_account(&account_id)
+        .ok_or_else(|| format!("Account with ID {} not found", account_id))?;
+    
+    // Store account ID and API ID
+    *state.account_id.lock().await = Some(account_id.clone());
+    *state.api_id.lock().await = Some(account.api_id);
+    
+    ensure_client_initialized(&app_handle, &state, account.api_id, Some(&account_id)).await?;
     Ok(true)
 }
 
@@ -142,7 +215,7 @@ pub async fn cmd_check_connection(
         // Force re-init: Clear old client first to ensure fresh pool
         *state.client.lock().await = None;
         
-        match ensure_client_initialized(&app_handle, &state, api_id).await {
+        match ensure_client_initialized(&app_handle, &state, api_id, None).await {
             Ok(c) => {
                 // Double check
                 if c.get_me().await.is_ok() {
@@ -187,13 +260,15 @@ pub async fn cmd_logout(
     *state.login_token.lock().await = None;
     *state.password_token.lock().await = None;
     *state.api_id.lock().await = None;
+    *state.account_id.lock().await = None;
     crate::commands::utils::clear_peer_cache(&state.peer_cache).await;
     state.cancelled_transfers.write().await.clear();
 
-    // 4. Remove Session File
+    // 4. Remove Session Files - try both default and per-account paths for compatibility
     let app_data_dir = app_handle.path().app_data_dir().unwrap();
-    let session_path = app_data_dir.join("telegram.session");
-    let _ = std::fs::remove_file(session_path);
+    
+    // Try removing default session (backward compatibility)
+    let _ = std::fs::remove_file(app_data_dir.join("telegram.session"));
     let _ = std::fs::remove_file(app_data_dir.join("telegram.session-wal"));
     let _ = std::fs::remove_file(app_data_dir.join("telegram.session-shm"));
 
@@ -217,7 +292,7 @@ pub async fn cmd_auth_request_code(
     // Store API ID
     *state.api_id.lock().await = Some(api_id);
 
-    let client_handle = ensure_client_initialized(&app_handle, &state, api_id).await?;
+    let client_handle = ensure_client_initialized(&app_handle, &state, api_id, None).await?;
     
     log::info!("Requesting code for {}", phone);
     
@@ -334,7 +409,7 @@ pub async fn cmd_auth_qr_login(
     // Store API ID
     *state.api_id.lock().await = Some(api_id);
 
-    let client = ensure_client_initialized(&app_handle, &state, api_id).await?;
+    let client = ensure_client_initialized(&app_handle, &state, api_id, None).await?;
 
     log::info!("Requesting QR login token...");
 
