@@ -19,10 +19,14 @@ use grammers_client::SignInError;
 /// 
 /// IMPORTANT: This function properly manages runner lifecycle to prevent stack overflow.
 /// Before spawning a new runner, it signals the old runner to shutdown.
+/// 
+/// If account_id is provided, uses a per-account session file.
+/// Otherwise, uses a default shared session for backward compatibility.
 pub async fn ensure_client_initialized(
     app_handle: &tauri::AppHandle,
     state: &State<'_, TelegramState>,
     api_id: i32,
+    account_id: Option<&str>,
 ) -> Result<Client, String> {
     let mut client_guard = state.client.lock().await;
 
@@ -58,7 +62,13 @@ pub async fn ensure_client_initialized(
             .map_err(|e| format!("Failed to create app data dir: {}", e))?;
     }
     
-    let session_path = app_data_dir.join("telegram.session");
+    // Use per-account session path if account_id is provided, otherwise use default
+    let session_path = if let Some(acc_id) = account_id {
+        app_data_dir.join(format!("telegram_session_{}.db", acc_id))
+    } else {
+        app_data_dir.join("telegram.session")
+    };
+    
     let session_path_str = session_path.to_string_lossy().to_string();
     log::info!("Opening session at: {}", session_path_str);
     
@@ -111,7 +121,7 @@ pub async fn cmd_connect(
 ) -> Result<bool, String> {
     // Store API ID for auto-reconnect
     *state.api_id.lock().await = Some(api_id);
-    ensure_client_initialized(&app_handle, &state, api_id).await?;
+    ensure_client_initialized(&app_handle, &state, api_id, None).await?;
     Ok(true)
 }
 
@@ -142,7 +152,7 @@ pub async fn cmd_check_connection(
         // Force re-init: Clear old client first to ensure fresh pool
         *state.client.lock().await = None;
         
-        match ensure_client_initialized(&app_handle, &state, api_id).await {
+        match ensure_client_initialized(&app_handle, &state, api_id, None).await {
             Ok(c) => {
                 // Double check
                 if c.get_me().await.is_ok() {
@@ -217,7 +227,7 @@ pub async fn cmd_auth_request_code(
     // Store API ID
     *state.api_id.lock().await = Some(api_id);
 
-    let client_handle = ensure_client_initialized(&app_handle, &state, api_id).await?;
+    let client_handle = ensure_client_initialized(&app_handle, &state, api_id, None).await?;
     
     log::info!("Requesting code for {}", phone);
     
@@ -334,7 +344,7 @@ pub async fn cmd_auth_qr_login(
     // Store API ID
     *state.api_id.lock().await = Some(api_id);
 
-    let client = ensure_client_initialized(&app_handle, &state, api_id).await?;
+    let client = ensure_client_initialized(&app_handle, &state, api_id, None).await?;
 
     log::info!("Requesting QR login token...");
 

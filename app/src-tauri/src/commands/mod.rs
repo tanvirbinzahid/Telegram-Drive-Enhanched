@@ -15,6 +15,8 @@ pub struct TelegramState {
     pub login_token: Arc<Mutex<Option<LoginToken>>>,
     pub password_token: Arc<Mutex<Option<PasswordToken>>>,
     pub api_id: Arc<Mutex<Option<i32>>>,
+    /// Account ID of the currently active account (None if no account is active)
+    pub account_id: Arc<Mutex<Option<String>>>,
     /// Send to this channel to request runner shutdown.
     /// Uses std::sync::Mutex (not tokio) so it can be locked from synchronous
     /// contexts like the RunEvent::Exit handler.
@@ -36,6 +38,7 @@ pub mod preview;
 pub mod utils;
 pub mod network;
 pub mod streaming;
+pub mod accounts;
 
 pub use auth::*;
 pub use fs::*;
@@ -43,3 +46,4 @@ pub use preview::*;
 pub use utils::*;
 pub use network::*;
 pub use streaming::*;
+pub use accounts::*;

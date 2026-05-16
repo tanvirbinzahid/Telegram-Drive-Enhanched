@@ -8,6 +8,19 @@ export interface TelegramFile {
     // Add other fields if backend sends them
 }
 
+export interface TelegramAccount {
+    id: string;
+    name: string;
+    api_id: number;
+    api_hash: string;
+    phone?: string;
+}
+
+export interface AccountsConfig {
+    accounts: { [key: string]: TelegramAccount };
+    active_account_id?: string;
+}
+
 export interface TelegramFolder {
     id: number;
     name: string;

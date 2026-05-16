@@ -1,7 +1,9 @@
 pub mod models;
+pub mod accounts;
 
 pub mod commands;
 pub mod bandwidth;
+
 
 use tauri::Manager;
 use tokio::sync::Mutex;
@@ -55,6 +57,7 @@ pub fn run() {
                 login_token: Arc::new(Mutex::new(None)),
                 password_token: Arc::new(Mutex::new(None)),
                 api_id: Arc::new(Mutex::new(None)),
+                account_id: Arc::new(Mutex::new(None)),
                 runner_shutdown: Arc::new(std::sync::Mutex::new(None)),
                 runner_count: Arc::new(std::sync::atomic::AtomicU32::new(0)),
                 peer_cache: Arc::new(tokio::sync::RwLock::new(HashMap::new())),
@@ -113,6 +116,11 @@ pub fn run() {
             commands::cmd_cancel_transfer,
             commands::cmd_auth_qr_login,
             commands::cmd_auth_qr_poll,
+            commands::cmd_list_accounts,
+            commands::cmd_add_account,
+            commands::cmd_remove_account,
+            commands::cmd_switch_account,
+            commands::cmd_get_active_account,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
