@@ -113,6 +113,51 @@ pub async fn ensure_client_initialized(
     Ok(client)
 }
 
+/// Load and migrate accounts configuration from persistent storage
+pub async fn load_or_migrate_accounts_config(
+    app_handle: &tauri::AppHandle,
+) -> Result<crate::accounts::AccountsConfig, String> {
+    // Try to load the new accounts config
+    match crate::commands::accounts::load_accounts_config(app_handle).await {
+        Ok(config) if !config.accounts.is_empty() => {
+            return Ok(config);
+        }
+        Ok(_) => {
+            // New config exists but is empty, check for legacy config
+        }
+        Err(_) => {
+            // New config doesn't exist, check for legacy config
+        }
+    }
+    
+    // Check for legacy single-account config
+    let app_data_dir = app_handle.path().app_data_dir()
+        .map_err(|e| format!("Failed to get app data dir: {}", e))?;
+    
+    let legacy_config_path = app_data_dir.join("config.json");
+    if legacy_config_path.exists() {
+        let config_str = std::fs::read_to_string(&legacy_config_path)
+            .map_err(|e| format!("Failed to read legacy config: {}", e))?;
+        
+        // Try to parse as JSON and extract api_id/api_hash
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&config_str) {
+            if let (Some(api_id), Some(api_hash)) = (
+                json.get("api_id").and_then(|v| v.as_i64()).map(|v| v as i32),
+                json.get("api_hash").and_then(|v| v.as_str()).map(String::from),
+            ) {
+                log::info!("Found legacy config, migrating to multi-account format...");
+                let migrated = crate::accounts::AccountsConfig::migrate_from_legacy(api_id, api_hash);
+                // Save the migrated config
+                let _ = crate::commands::accounts::save_accounts_config(app_handle, &migrated).await;
+                return Ok(migrated);
+            }
+        }
+    }
+    
+    // No config found, return empty
+    Ok(crate::accounts::AccountsConfig::new())
+}
+
 #[tauri::command]
 pub async fn cmd_connect(
     app_handle: tauri::AppHandle,
@@ -122,6 +167,24 @@ pub async fn cmd_connect(
     // Store API ID for auto-reconnect
     *state.api_id.lock().await = Some(api_id);
     ensure_client_initialized(&app_handle, &state, api_id, None).await?;
+    Ok(true)
+}
+
+#[tauri::command]
+pub async fn cmd_connect_account(
+    app_handle: tauri::AppHandle,
+    state: State<'_, TelegramState>,
+    account_id: String,
+) -> Result<bool, String> {
+    let config = crate::commands::accounts::load_accounts_config(&app_handle).await?;
+    let account = config.get_account(&account_id)
+        .ok_or_else(|| format!("Account with ID {} not found", account_id))?;
+    
+    // Store account ID and API ID
+    *state.account_id.lock().await = Some(account_id.clone());
+    *state.api_id.lock().await = Some(account.api_id);
+    
+    ensure_client_initialized(&app_handle, &state, account.api_id, Some(&account_id)).await?;
     Ok(true)
 }
 
@@ -197,13 +260,15 @@ pub async fn cmd_logout(
     *state.login_token.lock().await = None;
     *state.password_token.lock().await = None;
     *state.api_id.lock().await = None;
+    *state.account_id.lock().await = None;
     crate::commands::utils::clear_peer_cache(&state.peer_cache).await;
     state.cancelled_transfers.write().await.clear();
 
-    // 4. Remove Session File
+    // 4. Remove Session Files - try both default and per-account paths for compatibility
     let app_data_dir = app_handle.path().app_data_dir().unwrap();
-    let session_path = app_data_dir.join("telegram.session");
-    let _ = std::fs::remove_file(session_path);
+    
+    // Try removing default session (backward compatibility)
+    let _ = std::fs::remove_file(app_data_dir.join("telegram.session"));
     let _ = std::fs::remove_file(app_data_dir.join("telegram.session-wal"));
     let _ = std::fs::remove_file(app_data_dir.join("telegram.session-shm"));
 

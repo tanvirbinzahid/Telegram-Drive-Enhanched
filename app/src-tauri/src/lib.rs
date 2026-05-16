@@ -95,6 +95,7 @@ pub fn run() {
             commands::cmd_get_files,
             commands::cmd_upload_file,
             commands::cmd_connect,
+            commands::cmd_connect_account,
             commands::cmd_log,
             commands::cmd_delete_file,
             commands::cmd_download_file,
