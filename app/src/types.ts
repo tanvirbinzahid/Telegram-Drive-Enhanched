@@ -17,7 +17,7 @@ export interface TelegramAccount {
 }
 
 export interface AccountsConfig {
-    accounts: { [key: string]: TelegramAccount };
+    accounts: TelegramAccount[];
     active_account_id?: string;
 }
 
