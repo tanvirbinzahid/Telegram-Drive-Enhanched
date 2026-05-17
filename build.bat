@@ -115,21 +115,13 @@ pause
 goto :eof
 
 :setup_msvc_environment
-where cl.exe >nul 2>nul
-if not errorlevel 1 (
-    where link.exe >nul 2>nul
-    if not errorlevel 1 exit /b 0
+call :verify_msvc_toolchain quiet
+if !errorlevel! neq 0 (
+    call :load_vsdevcmd
+    if !errorlevel! neq 0 exit /b 1
+    call :verify_msvc_toolchain loud
+    if !errorlevel! neq 0 exit /b 1
 )
-
-call :load_vsdevcmd
-if errorlevel 1 exit /b 1
-
-where cl.exe >nul 2>nul
-if errorlevel 1 exit /b 1
-
-where link.exe >nul 2>nul
-if errorlevel 1 exit /b 1
-
 exit /b 0
 
 :load_vsdevcmd
@@ -143,15 +135,33 @@ for /f "usebackq delims=" %%i in (`"%VSWHERE%" -latest -products * -requires Mic
 if not defined VSINSTALL exit /b 1
 
 if exist "%VSINSTALL%\Common7\Tools\VsDevCmd.bat" (
-    call "%VSINSTALL%\Common7\Tools\VsDevCmd.bat" -arch=x64 -host_arch=x64 >nul
-    if errorlevel 1 exit /b 1
+    REM This project targets x64 Windows builds, so use the 64-bit toolchain.
+    call "%VSINSTALL%\Common7\Tools\VsDevCmd.bat" -arch=x64 -host_arch=x64 >nul 2>&1
+    if !errorlevel! neq 0 exit /b 1
     exit /b 0
 )
 
 if exist "%VSINSTALL%\VC\Auxiliary\Build\vcvars64.bat" (
-    call "%VSINSTALL%\VC\Auxiliary\Build\vcvars64.bat" >nul
-    if errorlevel 1 exit /b 1
+    call "%VSINSTALL%\VC\Auxiliary\Build\vcvars64.bat" >nul 2>&1
+    if !errorlevel! neq 0 exit /b 1
     exit /b 0
 )
 
 exit /b 1
+
+:verify_msvc_toolchain
+set "VERIFY_MODE=%~1"
+
+where cl.exe >nul 2>nul
+if !errorlevel! neq 0 (
+    if /i "%VERIFY_MODE%"=="loud" echo %error% Visual Studio C++ compiler (cl.exe) was not found in PATH.
+    exit /b 1
+)
+
+where link.exe >nul 2>nul
+if !errorlevel! neq 0 (
+    if /i "%VERIFY_MODE%"=="loud" echo %error% Visual Studio linker (link.exe) was not found in PATH.
+    exit /b 1
+)
+
+exit /b 0
