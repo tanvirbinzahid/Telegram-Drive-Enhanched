@@ -81,7 +81,7 @@ We've added **automated build scripts** to make creating executables easy and ha
 *   **OS-Specific Build Tools for Tauri**: 
     *   **macOS:** Xcode Command Line Tools (`xcode-select --install`).
     *   **Linux (Ubuntu/Debian):** `sudo apt update && sudo apt install libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev`
-    *   **Windows (CRITICAL):** You **must** install the [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/). During installation, select the **"Desktop development with C++"** workload. Without this, you will get a `linker 'link.exe' not found` error.
+    *   **Windows (CRITICAL):** You **must** install the [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) with the **"Desktop development with C++"** workload. The `build.bat` script will try to initialize the toolchain automatically, but if none is installed you'll still get a `linker 'link.exe' not found` error.
     *   **Windows (WebView2):** Windows 10/11 users usually have this pre-installed. If not, download the [WebView2 Runtime](https://developer.microsoft.com/en-us/microsoft-edge/webview2/#download-section).
     *   *Reference:* See the official [Tauri v2 Prerequisites Guide](https://v2.tauri.app/start/prerequisites/) for detailed instructions.
 *   **Telegram API Credentials**: You need your own API ID and API Hash to communicate with Telegram's servers.

@@ -128,6 +128,7 @@ app/src-tauri/target/release/
 ### Windows: "linker 'link.exe' not found"
 - Install Visual Studio Build Tools with C++ Desktop Development workload
 - Make sure you selected the correct workload during installation
+- Run `build.bat` again after installing; it now tries to load the Visual Studio toolchain automatically
 
 ### Linux: "libwebkit2gtk-4.1-dev not found"
 - Run: `sudo apt install libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev`
