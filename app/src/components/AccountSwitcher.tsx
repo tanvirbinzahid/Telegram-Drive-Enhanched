@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
-import { ChevronDown, Plus, Trash2, LogOut } from "lucide-react";
+import { ChevronDown, Plus, Trash2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { TelegramAccount } from "../types";
 
