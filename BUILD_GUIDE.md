@@ -203,9 +203,8 @@ The script will:
 1. Install Visual Studio Build Tools
 2. Select "Desktop development with C++" during installation
 3. Restart terminal/IDE
-4. Try build again
-
-OR use "Developer Command Prompt for Visual Studio" to run the build
+4. Try `build.bat` again so it can auto-load the toolchain if installed
+5. If needed, open "Developer Command Prompt for Visual Studio" and run the build there
 
 ### "command not found: cargo" (Any platform)
 **Solution:**

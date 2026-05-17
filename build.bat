@@ -51,14 +51,16 @@ if !errorlevel! neq 0 (
 for /f "tokens=*" %%i in ('rustc --version') do set RUST_VERSION=%%i
 echo %success% Rust: %RUST_VERSION%
 
-REM Check Visual Studio Build Tools
-where cl.exe >nul 2>nul
+REM Check or initialize Visual Studio Build Tools
+call :setup_msvc_environment
 if !errorlevel! neq 0 (
-    echo %warning% Visual Studio Build Tools C++ compiler not found in PATH.
-    echo Please ensure Visual Studio Build Tools are installed with C++ support.
-    echo You may need to run this from "Developer Command Prompt for Visual Studio"
+    echo %error% Visual Studio Build Tools with C++ support are required.
+    echo Please install them from https://visualstudio.microsoft.com/visual-cpp-build-tools/
+    echo or run this script from "Developer Command Prompt for Visual Studio".
     pause
+    exit /b 1
 )
+echo %success% Visual Studio C++ toolchain ready.
 
 REM Change to app directory
 cd /d "%~dp0app"
@@ -110,3 +112,46 @@ echo.
 echo %success% Build successful! Your executable is ready to use.
 echo.
 pause
+goto :eof
+
+:setup_msvc_environment
+where cl.exe >nul 2>nul
+if not errorlevel 1 (
+    where link.exe >nul 2>nul
+    if not errorlevel 1 exit /b 0
+)
+
+call :load_vsdevcmd
+if errorlevel 1 exit /b 1
+
+where cl.exe >nul 2>nul
+if errorlevel 1 exit /b 1
+
+where link.exe >nul 2>nul
+if errorlevel 1 exit /b 1
+
+exit /b 0
+
+:load_vsdevcmd
+set "VSWHERE=%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe"
+set "VSINSTALL="
+
+if not exist "%VSWHERE%" exit /b 1
+
+for /f "usebackq delims=" %%i in (`"%VSWHERE%" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VSINSTALL=%%i"
+
+if not defined VSINSTALL exit /b 1
+
+if exist "%VSINSTALL%\Common7\Tools\VsDevCmd.bat" (
+    call "%VSINSTALL%\Common7\Tools\VsDevCmd.bat" -arch=x64 -host_arch=x64 >nul
+    if errorlevel 1 exit /b 1
+    exit /b 0
+)
+
+if exist "%VSINSTALL%\VC\Auxiliary\Build\vcvars64.bat" (
+    call "%VSINSTALL%\VC\Auxiliary\Build\vcvars64.bat" >nul
+    if errorlevel 1 exit /b 1
+    exit /b 0
+)
+
+exit /b 1

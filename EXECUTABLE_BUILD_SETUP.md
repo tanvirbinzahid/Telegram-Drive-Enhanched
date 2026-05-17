@@ -59,6 +59,7 @@ npm run tauri build
 2. Install Node.js v18+
 3. Install Rust from rustup.rs
 4. Verify: `node --version`, `cargo --version`
+5. `build.bat` will try to load the toolchain automatically when it is installed
 
 #### Linux (Ubuntu/Debian)
 ```bash
